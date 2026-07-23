@@ -1,0 +1,36 @@
+# This repository is the public hand-out for the "AI in Aviation: Practical
+# Applications" course. Only the Day 1 / Day 2 demo essentials are tracked
+# here (notebooks, demo app, dataset, trained model, sample manual, and the
+# environment files needed to reproduce them). Internal planning documents
+# (tasks/, doc/, resources/, deck/, lessons.md, persona.md, AGENTS.md, etc.)
+# and one-off maintenance scripts are intentionally kept out of this repo.
+
+# Ignore everything at the root by default...
+/*
+# ...then explicitly allow the demo essentials.
+!/README.md
+!/pyproject.toml
+!/uv.lock
+!/.python-version
+!/.gitignore
+!/src/
+!/assets/
+
+# One-off internal notebook-maintenance scripts (not needed to run the demo)
+src/fix_duplicates.py
+src/modify_notebook.py
+src/modify_notebook_v2.py
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.venv-1
+.ipynb_checkpoints/
+.DS_Store
