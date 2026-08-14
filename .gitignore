@@ -21,6 +21,10 @@ src/fix_duplicates.py
 src/modify_notebook.py
 src/modify_notebook_v2.py
 
+# Presentation assets (not demo essentials)
+assets/aai_zoom_bg.png
+assets/slido-please-share-your-thoughts-on-why-it-concerns-you-the-most.png
+
 # Python-generated files
 __pycache__/
 *.py[oc]

@@ -126,7 +126,7 @@ Open `src/day2_agentic_maintenance.ipynb` and run the cells from top to bottom. 
 
 ### Option B — The Web App (a preview of a deployed version)
 
-This runs the exact same AI system as the notebook, but behind a simple point-and-click web page — showing what this might look like as a real, deployed application rather than a notebook.
+This runs the exact same AI system as the notebook, but behind a **messenger-style chat interface** — showing what this might look like as a real, deployed application rather than a notebook.
 
 ```bash
 uv run python src/day2_demo_app.py
@@ -140,10 +140,11 @@ This will print a local web address, for example:
 Open that address in your web browser. You'll see:
 
 - A status line confirming Ollama is running and the AI model is ready.
-- A text box where you can type a maintenance question, or click one of the **"Load Example"** buttons for a ready-made scenario.
-- A **"Run Maintenance Analysis"** button.
-- A live, scrolling log on the left showing the AI's reasoning process as it happens (which tools it's calling and what it finds).
-- A final, structured recommendation on the right once it's done.
+- A chat interface where you can type a maintenance question, or click one of the **suggestion chips** for a ready-made scenario.
+- Press **Send** to start the analysis.
+- The agent's reasoning streams into the chat in real time — 🔧 icons show tool calls, 📋 icons show observations.
+- The final structured recommendation appears as the last assistant message.
+- Use the **Reset Chat** button to clear the conversation and start fresh.
 
 To stop the app, go back to the terminal window and press `Ctrl+C`.
 
@@ -186,9 +187,8 @@ The best model trained in the Day 1 notebook (Gradient Boosting) achieves a Root
 | `uv sync` fails or hangs | Check your internet connection (packages are downloaded on first run). Try again with `uv sync --refresh`. |
 | Day 2 notebook/app shows "Ollama is not running" | Start Ollama (menu bar icon on macOS, or run `ollama serve` in a terminal), then re-run the cell or restart the app. |
 | Day 2 says the model was not found | Run `ollama pull qwen2.5:3b` in a terminal, then try again. |
-| The AI agent takes a long time to respond | This is expected — each AI reasoning step takes 10–30 seconds on a laptop. A full recommendation can take 30–90 seconds. Please be patient; there is no error. |
-| Jupyter opens but the kernel is missing / wrong | Make sure you launched Jupyter with `uv run jupyter lab` (not a plain `jupyter lab`), so it uses this project's environment. |
 | Web app doesn't open automatically | Copy the `http://127.0.0.1:7860` address printed in the terminal and paste it into your browser manually. |
+| The AI agent takes a long time to respond | This is expected — each AI reasoning step takes 10–30 seconds on a laptop. A full recommendation can take 30–90 seconds. Please be patient; there is no error. |
 
 ---
 

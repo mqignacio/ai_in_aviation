@@ -1,17 +1,20 @@
 """
-Day 2 Demo — Agentic Prescriptive Maintenance (Gradio web app)
+Day 2 Demo — Agentic Prescriptive Maintenance (Gradio chat app)
 
-A GUI version of `day2_agentic_maintenance.ipynb` for instructor-led live
-demos where a notebook is not convenient (e.g. presenting on a projector,
-running headless, or handing the mouse to a volunteer in the audience).
+A messenger-style chat interface for `day2_agentic_maintenance.ipynb`,
+designed for instructor-led live demos. The agent's reasoning (tool calls
+and observations) streams into the conversation as distinct chat messages
+so the audience can see the ReAct loop unfold in real time.
 
 Same pipeline as the notebook: Day 1 RUL model (Gradient Boosting) + a
 sample Engine Maintenance Program manual + a LangGraph ReAct agent backed
-by a local Ollama model (qwen2.5:3b). The agent's reasoning (Thought /
-Action / Observation) is streamed live into a terminal-style scrolling
-panel so the audience can see the ReAct loop happen in real time, while
-the final structured recommendation is surfaced separately with visual
-priority.
+by a local Ollama model (qwen2.5:3b).
+
+Features:
+- Messenger-style chat with user bubbles (right) and assistant bubbles (left)
+- Live streaming of tool calls (🔧) and observations (📋) as the agent reasons
+- Suggestion chips for quick example queries
+- Reset Chat button to clear the session
 
 Run with:
     uv run python src/day2_demo_app.py
@@ -33,17 +36,17 @@ from langgraph.prebuilt import create_react_agent
 # --- App Configuration ---
 APP_TITLE = "Prescriptive Maintenance Agent — Day 2 Demo"
 APP_DESCRIPTION = (
-    "Ask the agent about an engine's health. It queries the Day 1 RUL model, "
-    "consults the maintenance manual, and recommends a maintenance action — "
-    "all running locally, no cloud dependency."
+    "A messenger-style chat interface for the agentic maintenance system. "
+    "Ask about an engine\u2019s health \u2014 the agent queries the RUL model, "
+    "consults the maintenance manual, and recommends an action. "
+    "All running locally, no cloud dependency."
 )
 
-# Color Palette (Option A / Palette 1)
-MAROON = "#8D4F58"
-GREEN = "#426556"
-GOLD = "#F1AE35"
-BLUE = "#1B587C"
-GRAY = "#555555"
+# Color Palette (Option B / Palette 2 — Blue)
+CARE_BLUE = "#0338A6"
+MIDNIGHT_BLUE = "#04327B"
+OCEAN_BLUE = "#22A2E4"
+GRAY = "#58595B"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = BASE_DIR / "assets" / "models" / "rul_model.joblib"
@@ -270,23 +273,21 @@ EXAMPLE_QUERIES = {
 }
 
 
-def run_agent_query(user_query: str):
-    """Generator: streams the ReAct loop into a terminal-style log, then yields
-    the final structured recommendation once the agent produces it.
+def run_agent_query(user_query: str, chat_history: list):
+    """Generator: streams agent reasoning into chat history.
 
-    Yields (log_text, final_text) tuples so the Gradio UI updates both the
-    scrolling terminal panel and the final-answer card as the agent progresses.
+    Each tool call and observation is appended as a separate assistant message
+    so the audience can see the ReAct loop unfold in real time. The final
+    structured recommendation appears as the last assistant message.
+
+    Yields (chat_history, "") tuples to update the chatbot and clear the input.
     """
     if not user_query or not user_query.strip():
         raise gr.Error("Please enter a maintenance question, or click one of the example buttons.")
 
-    log_lines = [
-        "=" * 70,
-        f"USER QUERY: {user_query}",
-        "=" * 70,
-        "",
-    ]
-    yield "\n".join(log_lines), ""
+    # Append user message (Gradio 6 MessageDict format)
+    chat_history.append({"role": "user", "content": user_query})
+    yield chat_history, ""
 
     input_messages = {
         "messages": [("system", SYSTEM_PROMPT), ("user", user_query)]
@@ -294,44 +295,52 @@ def run_agent_query(user_query: str):
 
     step_count = 0
     final_answer = ""
+    last_ai_content = ""
     try:
         for event in agent.stream(input_messages, stream_mode="values"):
             messages = event["messages"]
             last_msg = messages[-1]
 
+            # Capture any AI message content (even with tool calls — model may bundle both)
+            if last_msg.type == "ai" and last_msg.content and len(last_msg.content) > 10:
+                last_ai_content = last_msg.content
+                # Only treat as final if no tool calls accompany it
+                if not getattr(last_msg, "tool_calls", None):
+                    final_answer = last_ai_content
+
             if getattr(last_msg, "tool_calls", None):
                 step_count += 1
                 for tc in last_msg.tool_calls:
-                    log_lines.append(f"\u2500\u2500\u2500 STEP {step_count}: ACTION \u2500\u2500\u2500")
-                    log_lines.append(f"  Tool:  {tc['name']}")
-                    log_lines.append(f"  Args:  {tc['args']}")
-                    log_lines.append("")
-                yield "\n".join(log_lines), ""
+                    args_str = ", ".join(f"{k}={v}" for k, v in tc["args"].items())
+                    chat_history.append({"role": "assistant", "content": f"\U0001f527 **{tc['name']}({args_str})**"})
+                yield chat_history, ""
             elif getattr(last_msg, "tool_call_id", None):
                 step_count += 1
                 content = last_msg.content if isinstance(last_msg.content, str) else str(last_msg.content)
                 if len(content) > 600:
                     content = content[:600] + "..."
-                log_lines.append(f"\u2500\u2500\u2500 STEP {step_count}: OBSERVATION \u2500\u2500\u2500")
-                log_lines.append(f"  Result: {content}")
-                log_lines.append("")
-                yield "\n".join(log_lines), ""
-            elif last_msg.type == "ai" and not getattr(last_msg, "tool_calls", None):
-                if step_count > 0 and last_msg.content and len(last_msg.content) > 50:
-                    final_answer = last_msg.content
-                    log_lines.append("=" * 70)
-                    log_lines.append("FINAL RECOMMENDATION PRODUCED \u2014 see panel on the right.")
-                    log_lines.append("=" * 70)
-                    yield "\n".join(log_lines), final_answer
+                chat_history.append({"role": "assistant", "content": f"\U0001f4cb {content}"})
+                yield chat_history, ""
     except Exception as e:
-        log_lines.append("")
-        log_lines.append(f"\u274c ERROR: {e}")
-        yield "\n".join(log_lines), "An error occurred. See the terminal log for details."
+        chat_history.append({"role": "assistant", "content": f"\u274c **Error:** {e}"})
+        yield chat_history, ""
         return
 
-    if not final_answer:
-        final_answer = "Agent completed without a final structured answer."
-        yield "\n".join(log_lines), final_answer
+    if final_answer:
+        chat_history.append({"role": "assistant", "content": final_answer})
+    elif last_ai_content and step_count > 0:
+        # Model produced reasoning content alongside tool calls — use it
+        chat_history.append({"role": "assistant", "content": last_ai_content})
+    elif step_count == 0:
+        # No tools were called — something went wrong
+        chat_history.append({"role": "assistant", "content": "The agent did not produce a response. Please try rephrasing your question."})
+    # else: tools were called and observations shown — the reasoning is visible in the chat
+    yield chat_history, ""
+
+
+def reset_chat() -> tuple:
+    """Clear the chat history and input textbox."""
+    return [], ""
 
 
 def load_example(label: str) -> str:
@@ -341,60 +350,69 @@ def load_example(label: str) -> str:
 # --- UI Layout ---
 CUSTOM_CSS = f"""
 #header-banner {{
-    background: linear-gradient(135deg, {BLUE} 0%, {MAROON} 100%);
-    padding: 24px 28px;
+    background: linear-gradient(135deg, {CARE_BLUE} 0%, {MIDNIGHT_BLUE} 100%);
+    padding: 20px 24px;
     border-radius: 12px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }}
 #header-banner h1, #header-banner p {{
     color: #ffffff !important;
     margin: 0;
 }}
-#header-banner h1 {{ font-size: 1.6em; font-weight: 700; }}
-#header-banner p {{ font-size: 1em; margin-top: 6px; opacity: 0.95; }}
+#header-banner h1 {{ font-size: 1.5em; font-weight: 700; }}
+#header-banner p {{ font-size: 0.95em; margin-top: 4px; opacity: 0.9; }}
 
 #status-banner {{
     border: 1px solid {GRAY};
     border-radius: 8px;
-    padding: 8px 14px;
+    padding: 6px 12px;
     font-family: monospace;
-    font-size: 0.9em;
+    font-size: 0.85em;
+    margin-bottom: 0;
 }}
 
-#terminal-log textarea {{
-    background: #1E2227 !important;
-    color: #7CFC9A !important;
-    font-family: "Courier New", monospace !important;
+/* Reset button */
+#reset-btn {{
+    border-color: {GRAY} !important;
+    color: {GRAY} !important;
+    min-height: 32px !important;
     font-size: 0.85em !important;
-    line-height: 1.4em;
-    border-radius: 8px !important;
 }}
 
-#final-recommendation {{
-    border: 2px solid {GOLD};
-    border-radius: 12px;
-    padding: 4px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+/* Suggestion chips */
+.suggestion-btn {{
+    border-color: {OCEAN_BLUE} !important;
+    color: {CARE_BLUE} !important;
+    font-size: 0.82em !important;
+    padding: 4px 14px !important;
+    border-radius: 20px !important;
+    background: transparent !important;
+    min-height: 32px !important;
 }}
-#final-recommendation textarea {{
-    font-size: 1.02em !important;
-    line-height: 1.5em;
+.suggestion-btn:hover {{
+    background: {OCEAN_BLUE}18 !important;
 }}
 
-button.primary {{
-    background: {BLUE} !important;
-    border-color: {BLUE} !important;
+/* Chat bubble styling — user messages */
+.chatbot-user-bubble {{
+    background: {CARE_BLUE} !important;
+    color: #ffffff !important;
+    border-radius: 18px 18px 4px 18px !important;
 }}
-button.secondary {{
-    border-color: {GREEN} !important;
-    color: {GREEN} !important;
+
+/* Chat bubble styling — assistant messages */
+.chatbot-assistant-bubble {{
+    background: #f0f2f5 !important;
+    color: #1a1a1a !important;
+    border-radius: 18px 18px 18px 4px !important;
+    border-left: 3px solid {OCEAN_BLUE} !important;
 }}
 
 footer {{ display: none !important; }}
 """
 
-with gr.Blocks(title=APP_TITLE) as demo:
+with gr.Blocks(title=APP_TITLE, fill_height=True) as demo:
     gr.HTML(
         f"""
         <div id="header-banner">
@@ -404,83 +422,53 @@ with gr.Blocks(title=APP_TITLE) as demo:
         """
     )
 
-    gr.Markdown(f"**Ollama status:** {_ollama_status}", elem_id="status-banner")
+    with gr.Row():
+        gr.Markdown(f"**Ollama:** {_ollama_status}", elem_id="status-banner")
+        reset_btn = gr.Button("\U0001f5d1 Reset Chat", elem_id="reset-btn", size="sm")
 
-    with gr.Tabs():
-        with gr.Tab("Live Demo"):
-            with gr.Row():
-                with gr.Column(scale=2):
-                    query_box = gr.Textbox(
-                        label="Maintenance question",
-                        placeholder=(
-                            "e.g. Engine 1 has been showing degraded performance. "
-                            "What maintenance action do you recommend?"
-                        ),
-                        lines=3,
-                    )
-                    with gr.Row():
-                        example1_btn = gr.Button(
-                            "Load Example: Engine 1 (general degradation)",
-                            variant="secondary",
-                        )
-                        example2_btn = gr.Button(
-                            "Load Example: Engine 5 (HPC degradation)",
-                            variant="secondary",
-                        )
-                    run_btn = gr.Button("Run Maintenance Analysis", variant="primary")
+    chatbot = gr.Chatbot(
+        label="Conversation",
+        scale=1,
+        height=400,
+        layout="bubble",
+        buttons=["copy"],
+    )
 
-                    gr.Markdown("### Agent Reasoning Log (live ReAct loop)")
-                    terminal_log = gr.Textbox(
-                        label="",
-                        lines=22,
-                        max_lines=22,
-                        autoscroll=True,
-                        interactive=False,
-                        elem_id="terminal-log",
-                        buttons=["copy"],
-                    )
+    with gr.Row():
+        ex1_btn = gr.Button(
+            "\U0001f527 Engine 1 \u2014 general degradation",
+            elem_classes="suggestion-btn",
+            size="sm",
+        )
+        ex2_btn = gr.Button(
+            "\U0001f527 Engine 5 \u2014 HPC degradation",
+            elem_classes="suggestion-btn",
+            size="sm",
+        )
 
-                with gr.Column(scale=2):
-                    gr.Markdown("### Final Recommendation")
-                    final_output = gr.Textbox(
-                        label="",
-                        lines=24,
-                        interactive=False,
-                        elem_id="final-recommendation",
-                        buttons=["copy"],
-                    )
+    msg = gr.Textbox(
+        placeholder="Ask about an engine\u2019s health...",
+        submit_btn=True,
+        container=False,
+    )
 
-            example1_btn.click(fn=lambda: load_example("Engine 1 — general degradation"), outputs=query_box)
-            example2_btn.click(fn=lambda: load_example("Engine 5 — HPC degradation"), outputs=query_box)
-            run_btn.click(fn=run_agent_query, inputs=query_box, outputs=[terminal_log, final_output])
-
-        with gr.Tab("About"):
-            gr.Markdown(
-                f"""
-                ### What this demo shows
-
-                This app is the GUI counterpart of `src/day2_agentic_maintenance.ipynb`
-                (AI in Aviation — Day 2). It demonstrates **agentic AI** for
-                prescriptive maintenance: an autonomous agent that combines a
-                predictive model with domain knowledge to recommend action, not
-                just predict a number.
-
-                | Component | Role | Technology |
-                |---|---|---|
-                | Predictive Model | Engine health (RUL) | Day 1 Gradient Boosting model (RMSE {model_rmse:.2f}) |
-                | Domain Knowledge | Maintenance procedures & thresholds | Engine Maintenance Program manual |
-                | Agentic Orchestrator | Reasoning, tool selection, recommendation | LangChain + LangGraph ReAct loop, local Ollama ({OLLAMA_MODEL}) |
-
-                **Available engines in the demo dataset:** {", ".join(str(e) for e in ENGINE_IDS)}
-
-                Everything runs locally — no cloud API calls, no data leaves this machine.
-
-                **The Calculator Lesson, revisited:** the agent can query data, read
-                manuals, and produce recommendations, but the human maintenance
-                engineer remains accountable for the final decision. The agent is
-                an assistant, not a replacement.
-                """
-            )
+    ex1_btn.click(
+        fn=lambda: load_example("Engine 1 \u2014 general degradation"),
+        outputs=msg,
+    )
+    ex2_btn.click(
+        fn=lambda: load_example("Engine 5 \u2014 HPC degradation"),
+        outputs=msg,
+    )
+    msg.submit(
+        fn=run_agent_query,
+        inputs=[msg, chatbot],
+        outputs=[chatbot, msg],
+    )
+    reset_btn.click(
+        fn=reset_chat,
+        outputs=[chatbot, msg],
+    )
 
 
 if __name__ == "__main__":
