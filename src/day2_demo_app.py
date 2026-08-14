@@ -109,6 +109,18 @@ test_raw = pd.read_csv(
 )
 ENGINE_IDS = sorted(test_raw["unit_number"].unique().tolist())
 
+WELCOME_MESSAGE = (
+    "**Welcome to the Prescriptive Maintenance Agent!** \U0001f6e1\ufe0f\n\n"
+    "I can help you assess engine health and recommend maintenance actions. "
+    "Here\u2019s what I can do:\n\n"
+    "\U0001f527 **Query RUL** \u2014 Predict remaining useful life for any engine in the demo dataset\n"
+    "\U0001f4d6 **Look up manual** \u2014 Search the engine maintenance program for procedures and thresholds\n"
+    "\U0001f3e5 **Assess health** \u2014 Classify engine status based on RUL and recommend actions\n\n"
+    f"**Available engines:** {', '.join(str(e) for e in ENGINE_IDS)}\n"
+    f"**RUL model:** {model_type} (RMSE: {model_rmse:.2f}, window: {window_size} cycles)\n\n"
+    "Try clicking one of the suggestion chips below, or type your own question!"
+)
+
 
 def extract_features(df: pd.DataFrame, window: int) -> pd.DataFrame:
     """Sliding-window feature extraction (21 sensors x 4 rolling stats = 84 features)."""
@@ -287,6 +299,9 @@ def run_agent_query(user_query: str, chat_history: list):
 
     # Append user message (Gradio 6 MessageDict format)
     chat_history.append({"role": "user", "content": user_query})
+    # Add thinking indicator
+    thinking_idx = len(chat_history)
+    chat_history.append({"role": "assistant", "content": "\u2935\ufe0f **Agent is analyzing...**"})
     yield chat_history, ""
 
     input_messages = {
@@ -296,6 +311,7 @@ def run_agent_query(user_query: str, chat_history: list):
     step_count = 0
     final_answer = ""
     last_ai_content = ""
+    first_result = True
     try:
         for event in agent.stream(input_messages, stream_mode="values"):
             messages = event["messages"]
@@ -310,21 +326,36 @@ def run_agent_query(user_query: str, chat_history: list):
 
             if getattr(last_msg, "tool_calls", None):
                 step_count += 1
+                # Remove thinking indicator on first result
+                if first_result:
+                    chat_history.pop(thinking_idx)
+                    first_result = False
                 for tc in last_msg.tool_calls:
                     args_str = ", ".join(f"{k}={v}" for k, v in tc["args"].items())
                     chat_history.append({"role": "assistant", "content": f"\U0001f527 **{tc['name']}({args_str})**"})
                 yield chat_history, ""
             elif getattr(last_msg, "tool_call_id", None):
                 step_count += 1
+                # Remove thinking indicator on first result
+                if first_result:
+                    chat_history.pop(thinking_idx)
+                    first_result = False
                 content = last_msg.content if isinstance(last_msg.content, str) else str(last_msg.content)
                 if len(content) > 600:
                     content = content[:600] + "..."
                 chat_history.append({"role": "assistant", "content": f"\U0001f4cb {content}"})
                 yield chat_history, ""
     except Exception as e:
+        # Remove thinking indicator on error
+        if first_result:
+            chat_history.pop(thinking_idx)
         chat_history.append({"role": "assistant", "content": f"\u274c **Error:** {e}"})
         yield chat_history, ""
         return
+
+    # Remove thinking indicator if still present (no tool calls made)
+    if first_result:
+        chat_history.pop(thinking_idx)
 
     if final_answer:
         chat_history.append({"role": "assistant", "content": final_answer})
@@ -339,8 +370,11 @@ def run_agent_query(user_query: str, chat_history: list):
 
 
 def reset_chat() -> tuple:
-    """Clear the chat history and input textbox."""
-    return [], ""
+    """Clear the chat history and input textbox, then show welcome message."""
+    return [{"role": "assistant", "content": WELCOME_MESSAGE}], ""
+
+
+
 
 
 def load_example(label: str) -> str:
@@ -432,6 +466,7 @@ with gr.Blocks(title=APP_TITLE, fill_height=True) as demo:
         height=400,
         layout="bubble",
         buttons=["copy"],
+        value=[{"role": "assistant", "content": WELCOME_MESSAGE}],
     )
 
     with gr.Row():
